@@ -1,0 +1,4 @@
+# drivers/sensor/m90e26/Kconfig
+if SENSOR
+rsource "m90e26/Kconfig"
+endif # SENSOR

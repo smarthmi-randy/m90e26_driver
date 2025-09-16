@@ -1,0 +1,15 @@
+# dts/bindings/sensor/atmel,m90e26.yaml
+
+description: Atmel M90E26 Single-Phase Energy Metering IC (UART)
+
+compatible: "atmel,m90e26"
+
+include: base.yaml
+
+properties:
+  reg:
+    required: true
+    description: |
+      The address of the device on the UART bus.
+      Note: M90E26 does not have a configurable address, use a placeholder
+      like <0>.

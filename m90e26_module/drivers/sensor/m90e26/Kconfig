@@ -1,0 +1,8 @@
+
+config M90E26
+    bool "Atmel M90E26 energy metering IC"
+    default n
+    depends on DT_HAS_ATMEL_M90E26_ENABLED
+    select CONFIG_UART_ASYNC_API# 啟用 UART 驅動
+    help
+      Enable driver for the Atmel M90E26 energy metering IC using UART.
