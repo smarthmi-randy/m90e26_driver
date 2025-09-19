@@ -1,0 +1,8 @@
+description: Atmel M90E26 Energy Metering IC Emulator
+
+compatible: "atmel,m90e26-emul"
+
+properties:
+  label:
+    type: string
+    description: Human readable name for the emulator instance.

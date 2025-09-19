@@ -6,3 +6,12 @@ config M90E26
     select CONFIG_UART_ASYNC_API# 啟用 UART 驅動
     help
       Enable driver for the Atmel M90E26 energy metering IC using UART.
+
+config M90E26_EMUL
+    bool "Enable Atmel M90E26 Emulator Driver"
+    default y
+    depends on EMUL
+    help
+      Enable the software emulator for the Atmel M90E26 energy
+      metering IC. This is intended for host-based testing without
+      actual hardware.

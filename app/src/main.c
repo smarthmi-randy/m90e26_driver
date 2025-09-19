@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include "m90e26.h" // 引入 M90E26 的標頭檔
 
-static const struct device *energy_sensor = DEVICE_DT_GET(DT_NODELABEL(m90e26));
+static const struct device *energy_sensor = DEVICE_DT_GET(DT_NODELABEL(m90e26_sensor));
 
 int main(void)
 {

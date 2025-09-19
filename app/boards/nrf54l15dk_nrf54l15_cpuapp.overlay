@@ -4,9 +4,9 @@
     pinctrl-0 = <&uart21_default>;
     pinctrl-names = "default";
     current-speed = <9600>;
-    m90e26: m90e26@0 {
+    m90e26_sensor: m90e26 {
         compatible = "atmel,m90e26";
-        reg = <0 0 1>;
+        status = "okay";
     };
 };
 

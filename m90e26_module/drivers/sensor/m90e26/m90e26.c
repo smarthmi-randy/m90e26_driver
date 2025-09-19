@@ -50,6 +50,8 @@ struct m90e26_data {
     uint8_t rx_buf[MSGQ_MAX_LEN];
     uint8_t rx_buf_pos;
     uint8_t expected_len;
+    bool is_initialized;
+    struct k_mutex lock;
 };
 
 struct m90e26_config {
@@ -64,6 +66,8 @@ static const struct uart_config m90e26_uart_cfg = {
     .flow_ctrl = UART_CFG_FLOW_CTRL_NONE,
 };
 
+static int m90e26_init(const struct device *dev);
+
 static uint8_t m90e26_checksum(const uint8_t *data, size_t len)
 {
     uint8_t sum = 0;
@@ -73,28 +77,67 @@ static uint8_t m90e26_checksum(const uint8_t *data, size_t len)
     return sum;
 }
 
-static void uart_cb_handler(const struct device *dev, void *user_data)
+static void uart_cb_handler(const struct device *dev, struct uart_event *evt, void *user_data)
 {
     const struct device *sensor = user_data;
     struct m90e26_data *data = sensor->data;
-    int ret;
 
-    if (!uart_irq_update(dev) || !uart_irq_rx_ready(dev)) {
+    if (data == NULL) {
+        LOG_ERR("UART callback received NULL user_data for %s!", dev->name);
         return;
     }
 
-    while (data->rx_buf_pos < data->expected_len) {
-        ret = uart_fifo_read(dev, &data->rx_buf[data->rx_buf_pos], 1);
-        if (ret == 0) {
-            break; // No more data in FIFO
+    switch (evt->type) {
+        case UART_RX_RDY: {
+            //LOG_INF("%s: UART_RX_RDY:%X,%u", dev->name, data->rx_buf[data->rx_buf_pos], data->rx_buf_pos);
+            //LOG_INF("%s: 1 UART_RX_RDY:%s,%u", dev->name, evt->data.rx.buf, evt->data.rx.offset);
+            //接收完成的事件，在這邊處理接收資料以及傳送msgq到Application的邏輯
+            if(evt->data.rx.len > 0)
+            {
+                if (k_msgq_put(&data->rx_msgq, data->rx_buf, K_NO_WAIT) != 0)
+                {
+                    LOG_ERR("UART data can't put into msgq");
+                }
+            }
+            LOG_INF("%s: UART_RX_RDY evt:%u,%u", dev->name, evt->data.rx.len, evt->data.rx.offset);
+            LOG_INF("%s: UART_RX_RDY", dev->name);
+            LOG_HEXDUMP_INF(data->rx_buf, evt->data.rx.len, "Received: ");
+            break;
         }
-        data->rx_buf_pos++;
-    }
+        case UART_RX_STOPPED: {
+            //LOG_INF("%s: UART_RX_STOPPED", dev->name);
+            break;
+        }
+        case UART_RX_BUF_REQUEST:
+            // 驅動通常會自動請求下一個緩衝區，無需手動處理
+            break;
 
-    if (data->rx_buf_pos >= data->expected_len) {
-        k_msgq_put(&data->rx_msgq, data->rx_buf, K_NO_WAIT);
-        data->rx_buf_pos = 0;
-        uart_irq_rx_disable(dev);
+        case UART_RX_BUF_RELEASED:
+            // 緩衝區釋放事件，用於資源管理
+            break;
+        case UART_RX_DISABLED:
+        {
+            // int ret = uart_rx_enable(dev, data->rx_buf, MSGQ_MAX_LEN, 10000);
+            // //LOG_INF("%s: UART_RX_DISABLED:%X,%u", dev->name, data->rx_buf[data->rx_buf_pos], data->rx_buf_pos);
+            // if (ret) {
+            //     LOG_ERR("啟用 UART %s 接收失敗: %d", dev->name, ret);
+            // }
+            //LOG_INF("%s: UART_RX_DISABLED", dev->name);
+            break;
+        }
+        case UART_TX_DONE:
+            // 傳輸完成事件。如果需要，可以在此處理 TX 完成的邏輯
+            // 例如，釋放 TX 緩衝區或通知等待的線程
+            LOG_INF("%s: UART_TX_DONE", dev->name);
+            break;
+
+        case UART_TX_ABORTED:
+            //LOG_WRN("%s: UART_EVT_TX_ABORTED", dev->name);
+            break;
+
+        default:
+            // 處理其他未知的 UART 事件
+            break;
     }
 }
 
@@ -104,6 +147,7 @@ static int m90e26_reg_read(const struct device *dev, uint8_t reg_addr, uint16_t 
     struct m90e26_data *data = dev->data;
     uint8_t tx_buf[3];
     uint8_t rx_buf[READ_RESP_LEN];
+    int ret = 0;
 
     tx_buf[0] = M90E26_UART_START_BYTE;
     tx_buf[1] = reg_addr | M90E26_UART_READ_BIT;
@@ -111,18 +155,31 @@ static int m90e26_reg_read(const struct device *dev, uint8_t reg_addr, uint16_t 
 
     data->expected_len = READ_RESP_LEN;
     data->rx_buf_pos = 0;
+
+    uart_rx_disable(config->uart);
+
+    ret = uart_rx_enable(config->uart, data->rx_buf, READ_RESP_LEN, 10000);
+    if (ret) {
+        LOG_ERR("啟用 UART %s 接收失敗: %d", config->uart->name, ret);
+        return ret;
+    }
+
     k_msgq_purge(&data->rx_msgq);
     uart_irq_rx_enable(config->uart);
 
-    for (int i = 0; i < sizeof(tx_buf); i++) {
-        uart_poll_out(config->uart, tx_buf[i]);
-    }
-
-    if (k_msgq_get(&data->rx_msgq, rx_buf, K_MSEC(100)) != 0) {
+    ret = uart_tx(config->uart, tx_buf, sizeof(tx_buf), SYS_FOREVER_US);
+    if (ret != 0) {
         uart_irq_rx_disable(config->uart);
+        LOG_ERR("Write fail: %d", ret);
+        return ret;
+    }
+    LOG_INF("Read: 0x%02X", reg_addr);
+    if (k_msgq_get(&data->rx_msgq, rx_buf, K_MSEC(20)) != 0) {
+        uart_irq_rx_disable(config->uart);
+        LOG_ERR("Get msgq timeout");
         return -ETIMEDOUT;
     }
-
+    LOG_HEXDUMP_INF(rx_buf, READ_RESP_LEN, "Received 2: ");
     uint8_t expected_checksum = m90e26_checksum(rx_buf, 2); // Checksum is sum of DATA_MSB and DATA_LSB [cite: 532]
     if (rx_buf[2] != expected_checksum) {
         LOG_ERR("Read checksum error. Got %02x, expected %02x", rx_buf[2], expected_checksum);
@@ -130,6 +187,7 @@ static int m90e26_reg_read(const struct device *dev, uint8_t reg_addr, uint16_t 
     }
 
     *val = sys_get_be16(rx_buf);
+    LOG_INF("Get value: %u", *val);
     return 0;
 }
 
@@ -139,6 +197,7 @@ static int m90e26_reg_write(const struct device *dev, uint8_t reg_addr, uint16_t
     struct m90e26_data *data = dev->data;
     uint8_t tx_buf[5];
     uint8_t rx_buf[WRITE_RESP_LEN];
+    int ret = 0;
 
     tx_buf[0] = M90E26_UART_START_BYTE;
     tx_buf[1] = reg_addr & ~M90E26_UART_READ_BIT;
@@ -147,21 +206,38 @@ static int m90e26_reg_write(const struct device *dev, uint8_t reg_addr, uint16_t
 
     data->expected_len = WRITE_RESP_LEN;
     data->rx_buf_pos = 0;
+
+    uart_rx_disable(config->uart);
+
+    ret = uart_rx_enable(config->uart, data->rx_buf, WRITE_RESP_LEN, 10000);
+    if (ret) {
+        LOG_ERR("啟用 UART %s 接收失敗: %d", config->uart->name, ret);
+        return ret;
+    }
+
     k_msgq_purge(&data->rx_msgq);
     uart_irq_rx_enable(config->uart);
 
-    for (int i = 0; i < sizeof(tx_buf); i++) {
-        uart_poll_out(config->uart, tx_buf[i]);
+    ret = uart_tx(config->uart, tx_buf, sizeof(tx_buf), SYS_FOREVER_US);
+    if (ret != 0) {
+        uart_irq_rx_disable(config->uart);
+        LOG_ERR("Write fail: %d", ret);
+        return ret;
     }
 
-    if (k_msgq_get(&data->rx_msgq, rx_buf, K_MSEC(100)) != 0) {
+    ret = k_msgq_get(&data->rx_msgq, rx_buf, K_MSEC(20));
+
+    if (ret != 0) {
         uart_irq_rx_disable(config->uart);
-        return -ETIMEDOUT;
+        LOG_ERR("Get queue fail: %d", ret);
+        return ret;
     }
 
     if (rx_buf[0] != tx_buf[4]) {
         LOG_ERR("Write checksum error. Got %02x, expected %02x", rx_buf[0], tx_buf[4]);
         return -EIO;
+    }else {
+        LOG_INF("m90e26_reg_write: checksum ok: 0x%02X", rx_buf[0]);
     }
     
     return 0;
@@ -173,6 +249,21 @@ static int m90e26_sample_fetch(const struct device *dev, enum sensor_channel cha
     struct m90e26_data *data = dev->data;
     int ret = 0;
 
+    k_mutex_lock(&data->lock, K_FOREVER);
+
+    if(data->is_initialized == false)
+    {
+        ret = m90e26_init(dev);
+        if(ret != 0)
+        {
+            LOG_ERR("%s: m90e26 initialization fail", __FUNCTION__);
+            return ret;
+        }else
+        {
+            data->is_initialized = true;
+        }
+    }
+
     if (chan != SENSOR_CHAN_ALL) {
         LOG_WRN("Unsupported channel %d", chan);
         return -ENOTSUP;
@@ -182,10 +273,10 @@ static int m90e26_sample_fetch(const struct device *dev, enum sensor_channel cha
     ret |= m90e26_reg_read(dev, M90E26_REG_IRMS, &data->irms);
     ret |= m90e26_reg_read(dev, M90E26_REG_PMEAN, (uint16_t *)&data->pmean);
     ret |= m90e26_reg_read(dev, M90E26_REG_QMEAN, (uint16_t *)&data->qmean);
-    ret |= m90e26_reg_read(dev, M90E26_REG_SMEAN, &data->smean);
+    //ret |= m90e26_reg_read(dev, M90E26_REG_SMEAN, &data->smean);
     ret |= m90e26_reg_read(dev, M90E26_REG_FREQ, &data->freq);
     ret |= m90e26_reg_read(dev, M90E26_REG_POWERF, (uint16_t *)&data->powerf);
-
+    k_mutex_unlock(&data->lock);
     return ret;
 }
 
@@ -235,7 +326,7 @@ static const struct sensor_driver_api m90e26_api = {
     .channel_get = m90e26_channel_get,
 };
 
-static int m90e26_init(const struct device *dev)
+static int m90e26_setup(const struct device *dev)
 {
     const struct m90e26_config *config = dev->config;
     struct m90e26_data *data = dev->data;
@@ -252,14 +343,24 @@ static int m90e26_init(const struct device *dev)
         return ret;
     }
 
-    k_msgq_init(&data->rx_msgq, data->msgq_buf, MSGQ_MAX_LEN, 1);
-    
-    uart_irq_callback_user_data_set(config->uart, uart_cb_handler, (void *)dev);
+    k_msgq_init(&data->rx_msgq, data->msgq_buf, MSGQ_MAX_LEN, MSGQ_MAX_LEN);
+    k_mutex_init(&data->lock);
+
+    data->is_initialized = false;
+    uart_callback_set(config->uart, uart_cb_handler, (void *)dev);
+}
+
+static int m90e26_init(const struct device *dev)
+{
+    const struct m90e26_config *config = dev->config;
+    struct m90e26_data *data = dev->data;
+    int ret;
+    LOG_WRN("m90e26_init");
 
     /* Software Reset */
     ret = m90e26_reg_write(dev, M90E26_REG_SOFTRESET, 0x789A);
     if (ret < 0) {
-        LOG_ERR("Failed to reset device");
+        LOG_ERR("Failed to reset device:%d",ret);
         return ret;
     }
     k_sleep(K_MSEC(20)); // Wait for reset and UART timeout [cite: 463]
@@ -285,13 +386,13 @@ static int m90e26_init(const struct device *dev)
 }
 
 #define M90E26_DEFINE(inst)                                           \
-    static struct m90e26_data m90e26_data_##inst;                     \
+    static struct m90e26_data m90e26_data_##inst = {.is_initialized = false, }; \
                                                                       \
     static const struct m90e26_config m90e26_config_##inst = {         \
         .uart = DEVICE_DT_GET(DT_INST_BUS(inst)),                      \
     };                                                                \
                                                                       \
-    DEVICE_DT_INST_DEFINE(inst, &m90e26_init, NULL,                    \
+    DEVICE_DT_INST_DEFINE(inst, &m90e26_setup, NULL,                    \
                           &m90e26_data_##inst, &m90e26_config_##inst,  \
                           POST_KERNEL, CONFIG_SENSOR_INIT_PRIORITY,   \
                           &m90e26_api);
