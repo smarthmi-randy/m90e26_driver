@@ -1,0 +1,11 @@
+tests:
+  testing.driver.m90e26:
+    # 標記這個測試需要在 native_sim 平台上執行
+    platform_allow: native_sim
+    # 標記為單元測試
+    tags: test drivers sensor
+    # 整合類型：僅編譯和執行
+    integration_platforms:
+      - native_sim
+
+west build -b native_sim/native/64 --no-sysbuild -d ./build --pristine -- -DZEPHYR_EXTRA_MODULES=/home/randy/Documents/nordic_project/m90e26_driver_example/m90e26_module -DCONF_FILE="./prj.conf" -DDTC_OVERLAY_FILE="./boards/native_sim.overlay" ./ && ./build/zephyr/zephyr.exe

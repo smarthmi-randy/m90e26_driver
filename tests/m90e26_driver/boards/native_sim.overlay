@@ -1,0 +1,22 @@
+/ {
+	// 建立一個 sensor 節點，其 'bus' 屬性指向虛擬的 uart_emul
+	// 這個節點會匹配您驅動程式的 "atmel,m90e26" compatible 字串
+
+	// 定義 uart_emul 節點
+	uart_emul: uart-emul {
+		compatible = "zephyr,uart-emul";
+		status = "okay";
+		m90e26_sensor: m90e26_sensor_0 {
+			compatible = "atmel,m90e26";
+			status = "okay";
+		};
+	};
+
+	// emulators {
+    //     m90e26_emul0: m90e26_emul_0 {
+    //         compatible = "atmel,m90e26-emul";
+    //         label = "EMUL_M90E26";
+    //     };
+    // };
+};
+
