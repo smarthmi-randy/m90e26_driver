@@ -122,7 +122,7 @@ static void uart_cb_handler(const struct device *dev, struct uart_event *evt, vo
             // if (ret) {
             //     LOG_ERR("啟用 UART %s 接收失敗: %d", dev->name, ret);
             // }
-            //LOG_INF("%s: UART_RX_DISABLED", dev->name);
+            LOG_INF("%s: UART_RX_DISABLED", dev->name);
             break;
         }
         case UART_TX_DONE:
@@ -146,48 +146,60 @@ static int m90e26_reg_read(const struct device *dev, uint8_t reg_addr, uint16_t 
     const struct m90e26_config *config = dev->config;
     struct m90e26_data *data = dev->data;
     uint8_t tx_buf[3];
-    uint8_t rx_buf[READ_RESP_LEN];
-    int ret = 0;
+    // 使用一個本地的 buffer 來接收 message queue 的數據，避免潛在的競爭條件
+    uint8_t local_rx_buf[READ_RESP_LEN];
+    int ret;
 
     tx_buf[0] = M90E26_UART_START_BYTE;
     tx_buf[1] = reg_addr | M90E26_UART_READ_BIT;
-    tx_buf[2] = tx_buf[1]; // Checksum for read is just the address byte [cite: 531]
+    tx_buf[2] = tx_buf[1]; // Checksum
 
-    data->expected_len = READ_RESP_LEN;
-    data->rx_buf_pos = 0;
+    // 為新的接收做準備
+    k_msgq_purge(&data->rx_msgq);
 
-    uart_rx_disable(config->uart);
-
-    ret = uart_rx_enable(config->uart, data->rx_buf, READ_RESP_LEN, 10000);
-    if (ret) {
-        LOG_ERR("啟用 UART %s 接收失敗: %d", config->uart->name, ret);
+    // 步驟 1: 直接啟用接收。
+    for(int i = 0; i < 10; i++){
+        ret = uart_rx_enable(config->uart, data->rx_buf, READ_RESP_LEN, SYS_FOREVER_US);
+        if (ret == 0) {
+            break;
+        }
+        k_sleep(K_MSEC(1));
+    }
+    
+    if (ret != 0) {
+        LOG_ERR("uart_rx_enable failed: %d", ret);
         return ret;
     }
 
-    k_msgq_purge(&data->rx_msgq);
-    uart_irq_rx_enable(config->uart);
-
+    // 步驟 2: 發送讀取命令
     ret = uart_tx(config->uart, tx_buf, sizeof(tx_buf), SYS_FOREVER_US);
     if (ret != 0) {
-        uart_irq_rx_disable(config->uart);
-        LOG_ERR("Write fail: %d", ret);
+        LOG_ERR("uart_tx failed: %d", ret);
+        // 如果發送失敗，最好中止已啟動的接收任務
+        uart_rx_disable(config->uart);
         return ret;
     }
-    LOG_INF("Read: 0x%02X", reg_addr);
-    if (k_msgq_get(&data->rx_msgq, rx_buf, K_MSEC(20)) != 0) {
-        uart_irq_rx_disable(config->uart);
-        LOG_ERR("Get msgq timeout");
+    LOG_INF("Read command sent for reg: 0x%02X", reg_addr);
+
+    // 步驟 3: 等待 callback 透過 message queue 通知數據已到達
+    if (k_msgq_get(&data->rx_msgq, local_rx_buf, K_MSEC(20)) != 0) {
+        LOG_ERR("Get msgq timeout for reg: 0x%02X", reg_addr);
+        // 等待逾時，這是一個需要主動呼叫 disable 的典型場景
+        uart_rx_disable(config->uart); 
         return -ETIMEDOUT;
     }
-    LOG_HEXDUMP_INF(rx_buf, READ_RESP_LEN, "Received 2: ");
-    uint8_t expected_checksum = m90e26_checksum(rx_buf, 2); // Checksum is sum of DATA_MSB and DATA_LSB [cite: 532]
-    if (rx_buf[2] != expected_checksum) {
-        LOG_ERR("Read checksum error. Got %02x, expected %02x", rx_buf[2], expected_checksum);
+
+    // 步驟 4: 驗證數據
+    uint8_t expected_checksum = m90e26_checksum(local_rx_buf, 2);
+    if (local_rx_buf[2] != expected_checksum) {
+        LOG_ERR("Read checksum error. Got %02x, expected %02x", local_rx_buf[2], expected_checksum);
         return -EIO;
     }
 
-    *val = sys_get_be16(rx_buf);
-    LOG_INF("Get value: %u", *val);
+    *val = sys_get_be16(local_rx_buf);
+    LOG_INF("Successfully read value: %u", *val);
+    
+    // 注意：接收任務成功完成後，接收器會自動禁用，無需手動呼叫 uart_rx_disable()
     return 0;
 }
 
@@ -207,20 +219,21 @@ static int m90e26_reg_write(const struct device *dev, uint8_t reg_addr, uint16_t
     data->expected_len = WRITE_RESP_LEN;
     data->rx_buf_pos = 0;
 
-    uart_rx_disable(config->uart);
-
-    ret = uart_rx_enable(config->uart, data->rx_buf, WRITE_RESP_LEN, 10000);
-    if (ret) {
-        LOG_ERR("啟用 UART %s 接收失敗: %d", config->uart->name, ret);
+    for(int i = 0; i < 10; i++){
+        ret = uart_rx_enable(config->uart, data->rx_buf, WRITE_RESP_LEN, SYS_FOREVER_US);
+        if (ret == 0) {
+            break;
+        }
+        k_sleep(K_MSEC(1));
+    }
+    if (ret != 0) {
+        LOG_ERR("uart_rx_enable failed: %d", ret);
         return ret;
     }
-
     k_msgq_purge(&data->rx_msgq);
-    uart_irq_rx_enable(config->uart);
 
     ret = uart_tx(config->uart, tx_buf, sizeof(tx_buf), SYS_FOREVER_US);
     if (ret != 0) {
-        uart_irq_rx_disable(config->uart);
         LOG_ERR("Write fail: %d", ret);
         return ret;
     }
@@ -228,7 +241,7 @@ static int m90e26_reg_write(const struct device *dev, uint8_t reg_addr, uint16_t
     ret = k_msgq_get(&data->rx_msgq, rx_buf, K_MSEC(20));
 
     if (ret != 0) {
-        uart_irq_rx_disable(config->uart);
+        uart_rx_disable(config->uart); 
         LOG_ERR("Get queue fail: %d", ret);
         return ret;
     }
@@ -268,7 +281,7 @@ static int m90e26_sample_fetch(const struct device *dev, enum sensor_channel cha
         LOG_WRN("Unsupported channel %d", chan);
         return -ENOTSUP;
     }
-
+    LOG_INF("Fetch start");
     ret |= m90e26_reg_read(dev, M90E26_REG_URMS, &data->urms);
     ret |= m90e26_reg_read(dev, M90E26_REG_IRMS, &data->irms);
     ret |= m90e26_reg_read(dev, M90E26_REG_PMEAN, (uint16_t *)&data->pmean);
@@ -379,8 +392,10 @@ static int m90e26_init(const struct device *dev)
         return ret;
     }
     k_sleep(K_MSEC(20));
-
+    uint16_t reg_buff = 0x00;
+    m90e26_reg_read(dev, 0x01, &reg_buff);
     LOG_INF("M90E26 driver initialized via UART");
+    k_sleep(K_MSEC(20));
 
     return 0;
 }
