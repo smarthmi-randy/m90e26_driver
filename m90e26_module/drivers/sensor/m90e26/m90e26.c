@@ -122,13 +122,13 @@ static void uart_cb_handler(const struct device *dev, struct uart_event *evt, vo
             // if (ret) {
             //     LOG_ERR("啟用 UART %s 接收失敗: %d", dev->name, ret);
             // }
-            LOG_INF("%s: UART_RX_DISABLED", dev->name);
+            LOG_DBG("%s: UART_RX_DISABLED", dev->name);
             break;
         }
         case UART_TX_DONE:
             // 傳輸完成事件。如果需要，可以在此處理 TX 完成的邏輯
             // 例如，釋放 TX 緩衝區或通知等待的線程
-            LOG_INF("%s: UART_TX_DONE", dev->name);
+            LOG_DBG("%s: UART_TX_DONE", dev->name);
             break;
 
         case UART_TX_ABORTED:
@@ -179,7 +179,7 @@ static int m90e26_reg_read(const struct device *dev, uint8_t reg_addr, uint16_t 
         uart_rx_disable(config->uart);
         return ret;
     }
-    LOG_INF("Read command sent for reg: 0x%02X", reg_addr);
+    LOG_DBG("Read command sent for reg: 0x%02X", reg_addr);
 
     // 步驟 3: 等待 callback 透過 message queue 通知數據已到達
     if (k_msgq_get(&data->rx_msgq, local_rx_buf, K_MSEC(20)) != 0) {
@@ -197,7 +197,7 @@ static int m90e26_reg_read(const struct device *dev, uint8_t reg_addr, uint16_t 
     }
 
     *val = sys_get_be16(local_rx_buf);
-    LOG_INF("Successfully read value: %u", *val);
+    LOG_DBG("Successfully read value: %u", *val);
     
     // 注意：接收任務成功完成後，接收器會自動禁用，無需手動呼叫 uart_rx_disable()
     return 0;
@@ -237,7 +237,6 @@ static int m90e26_reg_write(const struct device *dev, uint8_t reg_addr, uint16_t
         LOG_ERR("Write fail: %d", ret);
         return ret;
     }
-
     ret = k_msgq_get(&data->rx_msgq, rx_buf, K_MSEC(20));
 
     if (ret != 0) {
@@ -250,7 +249,7 @@ static int m90e26_reg_write(const struct device *dev, uint8_t reg_addr, uint16_t
         LOG_ERR("Write checksum error. Got %02x, expected %02x", rx_buf[0], tx_buf[4]);
         return -EIO;
     }else {
-        LOG_INF("m90e26_reg_write: checksum ok: 0x%02X", rx_buf[0]);
+        LOG_DBG("m90e26_reg_write: checksum ok: 0x%02X", rx_buf[0]);
     }
     
     return 0;
@@ -281,7 +280,7 @@ static int m90e26_sample_fetch(const struct device *dev, enum sensor_channel cha
         LOG_WRN("Unsupported channel %d", chan);
         return -ENOTSUP;
     }
-    LOG_INF("Fetch start");
+    LOG_DBG("Fetch start");
     ret |= m90e26_reg_read(dev, M90E26_REG_URMS, &data->urms);
     ret |= m90e26_reg_read(dev, M90E26_REG_IRMS, &data->irms);
     ret |= m90e26_reg_read(dev, M90E26_REG_PMEAN, (uint16_t *)&data->pmean);
@@ -361,14 +360,14 @@ static int m90e26_setup(const struct device *dev)
 
     data->is_initialized = false;
     uart_callback_set(config->uart, uart_cb_handler, (void *)dev);
+
+    return 0;
 }
 
 static int m90e26_init(const struct device *dev)
 {
-    const struct m90e26_config *config = dev->config;
-    struct m90e26_data *data = dev->data;
     int ret;
-    LOG_WRN("m90e26_init");
+    LOG_DBG("m90e26_init");
 
     /* Software Reset */
     ret = m90e26_reg_write(dev, M90E26_REG_SOFTRESET, 0x789A);
@@ -394,7 +393,7 @@ static int m90e26_init(const struct device *dev)
     k_sleep(K_MSEC(20));
     uint16_t reg_buff = 0x00;
     m90e26_reg_read(dev, 0x01, &reg_buff);
-    LOG_INF("M90E26 driver initialized via UART");
+    LOG_DBG("M90E26 driver initialized via UART");
     k_sleep(K_MSEC(20));
 
     return 0;
