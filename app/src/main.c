@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include "gpio-pwm.h"
 #include "m90e26.h" // 引入 M90E26 的標頭檔
+#include "nus_module.h"
 
 LOG_MODULE_REGISTER(main, LOG_LEVEL_INF);
 static const struct device *energy_sensora = DEVICE_DT_GET(DT_NODELABEL(m90e26_sensor_a));
@@ -34,6 +35,13 @@ int main(void)
 		LOG_ERR("Failed to start GPIO PWM module (err: %d)", ret);
 		return 0;
 	}
+
+    ret = nus_module_init();
+    if (ret != 0) {
+		LOG_ERR("Failed to start NUS loopback module (err: %d)", ret);
+		return 0;
+	}
+
     while (1) {
         struct sensor_value voltage, current, power, pf;
 
