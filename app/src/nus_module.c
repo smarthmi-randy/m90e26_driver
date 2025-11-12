@@ -13,7 +13,7 @@
 LOG_MODULE_REGISTER(nus_module, LOG_LEVEL_INF);
 #define DEVICE_NAME		CONFIG_BT_DEVICE_NAME
 #define DEVICE_NAME_LEN		(sizeof(DEVICE_NAME) - 1)
-#define BT_LOOPBACK_THREAD_STACK_SIZE 512
+#define BT_LOOPBACK_THREAD_STACK_SIZE 2048
 #define BT_LOOPBACK_THREAD_PRIORITY 5
 #define MSGQ_MAX_LEN    (10)
 // 宣告執行緒的堆疊 (stack) 空間
@@ -50,6 +50,10 @@ static void received(struct bt_conn *conn, const void *data, uint16_t len, void 
 	ARG_UNUSED(ctx);
 
 	memcpy(message, data, MIN(sizeof(message) - 1, len));
+	if (k_msgq_put(&loopback_msgq, message, K_NO_WAIT) != 0)
+	{
+		LOG_ERR("NUS data can't put into msgq");
+	}
 	LOG_INF("%s() - Len: %d, Message: %s\n", __func__, len, message);
 }
 
@@ -97,15 +101,16 @@ int nus_module_init(void)
 int nus_module_loopback(void)
 {
     while (true) {
-		const char local_buf[CONFIG_BT_L2CAP_TX_MTU + 1] = "";
+		char local_buf[CONFIG_BT_L2CAP_TX_MTU + 1] = "";
 
-		if (k_msgq_get(&msgq_buf, local_buf, K_MSEC(100)) == 0)
+		while (k_msgq_get(&loopback_msgq, (void *)local_buf, K_NO_WAIT) == 0)
         {
-            int err = bt_nus_send(NULL, local_buf, strlen(local_buf));
+            int err = bt_nus_send(NULL, local_buf, MIN(strlen(local_buf), CONFIG_BT_L2CAP_TX_MTU));
 		    LOG_INF("Data send - Result: %d\n", err);
             if (err < 0 && (err != -EAGAIN) && (err != -ENOTCONN)) {
 			    LOG_ERR("BT loopback fail: %d", err);
 		    }
         }
+		k_sleep(K_MSEC(1));
 	}
 }
