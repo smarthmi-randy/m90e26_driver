@@ -14,7 +14,6 @@ LOG_MODULE_REGISTER(gpio_pwm, LOG_LEVEL_DBG);
  * 這必須在 app.overlay 中定義
  */
 #define LED_NODE DT_ALIAS(gpiopwm0)
-#define LED_NODE1 DT_ALIAS(gpiopwm1)
 #define LED_NODE2 DT_ALIAS(gpiopwm2)
 #define LED_NODE3 DT_ALIAS(gpiopwm3)
 #define LED_NODE4 DT_ALIAS(gpiopwm4)
@@ -26,11 +25,10 @@ LOG_MODULE_REGISTER(gpio_pwm, LOG_LEVEL_DBG);
 #error "Unsupported board: led0 devicetree alias is not defined"
 #endif
 
-#define LED_NUM	(6)
+#define LED_NUM	(5)
 
 // 宣告 GPIO 規格結構體
 static const struct gpio_dt_spec leds[] = { GPIO_DT_SPEC_GET(LED_NODE, gpios)
-	, GPIO_DT_SPEC_GET(LED_NODE1, gpios)
 	, GPIO_DT_SPEC_GET(LED_NODE2, gpios)
 	, GPIO_DT_SPEC_GET(LED_NODE3, gpios)
 	, GPIO_DT_SPEC_GET(LED_NODE4, gpios)
