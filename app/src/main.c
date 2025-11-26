@@ -36,6 +36,7 @@ int main(void)
     {
         LOG_ERR("Get HW_ID failed\n");
     }
+    LOG_INF("Device ID: %s", hw_id);
 
     if (!device_is_ready(energy_sensora)) {
         LOG_ERR("Energy sensor device not ready\n");
@@ -105,6 +106,7 @@ int main(void)
                current.val1, current.val2,
                power.val1, power.val2,
                pf.val1, pf.val2);
+        LOG_INF("Send by uart 0: %s", sensor_msg[0]);
         ret = hmi_uart_send(my_uart_instance_data1.dev, sensor_msg[0], strlen(sensor_msg[0]));
         if(ret != 0)
         {
@@ -127,6 +129,7 @@ int main(void)
                current.val1, current.val2,
                power.val1, power.val2,
                pf.val1, pf.val2);
+        LOG_INF("Send by uart 1: %s", sensor_msg[1]);
         ret = hmi_uart_send(my_uart_instance_data1.dev, sensor_msg[1], strlen(sensor_msg[1]));
         if(ret != 0)
         {
@@ -149,6 +152,7 @@ int main(void)
                current.val1, current.val2,
                power.val1, power.val2,
                pf.val1, pf.val2);
+        LOG_INF("Send by uart 2: %s", sensor_msg[2]);
         ret = hmi_uart_send(my_uart_instance_data1.dev, sensor_msg[2], strlen(sensor_msg[2]));
         if(ret != 0)
         {
