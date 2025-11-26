@@ -100,14 +100,16 @@ int main(void)
                current.val1, current.val2,
                power.val1, power.val2,
                pf.val1, pf.val2);
-        snprintf(sensor_msg[0], 128, "%s: Sensor1 | V: %d.%06d V, I: %d.%06d A, P: %d.%06d W, PF: %d.%06d\n",
+        snprintf(sensor_msg[0], 128, "%s: Sensor1 | V: %d.%06d V, I: %d.%06d A, P: %d.%06d W, PF: %d.%06d\r\n",
                hw_id,
                voltage.val1, voltage.val2,
                current.val1, current.val2,
                power.val1, power.val2,
                pf.val1, pf.val2);
         LOG_INF("Send by uart 0: %s", sensor_msg[0]);
-        ret = hmi_uart_send(my_uart_instance_data1.dev, sensor_msg[0], strlen(sensor_msg[0]));
+        do{
+            ret = hmi_uart_send(my_uart_instance_data1.dev, sensor_msg[0], strlen(sensor_msg[0]));
+        }while(ret == -EBUSY);
         if(ret != 0)
         {
             LOG_ERR("Failed to send sensor1 value to 9151\n");
@@ -123,14 +125,16 @@ int main(void)
                current.val1, current.val2,
                power.val1, power.val2,
                pf.val1, pf.val2);
-        snprintf(sensor_msg[1], 128, "%s: Sensor2 | V: %d.%06d V, I: %d.%06d A, P: %d.%06d W, PF: %d.%06d\n",
+        snprintf(sensor_msg[1], 128, "%s: Sensor2 | V: %d.%06d V, I: %d.%06d A, P: %d.%06d W, PF: %d.%06d\r\n",
                hw_id,
                voltage.val1, voltage.val2,
                current.val1, current.val2,
                power.val1, power.val2,
                pf.val1, pf.val2);
         LOG_INF("Send by uart 1: %s", sensor_msg[1]);
-        ret = hmi_uart_send(my_uart_instance_data1.dev, sensor_msg[1], strlen(sensor_msg[1]));
+        do{
+            ret = hmi_uart_send(my_uart_instance_data1.dev, sensor_msg[1], strlen(sensor_msg[1]));
+        }while(ret == -EBUSY);
         if(ret != 0)
         {
             LOG_ERR("Failed to send sensor2 value to 9151\n");
@@ -146,14 +150,16 @@ int main(void)
                current.val1, current.val2,
                power.val1, power.val2,
                pf.val1, pf.val2);
-        snprintf(sensor_msg[2], 128, "%s: Sensor3 | V: %d.%06d V, I: %d.%06d A, P: %d.%06d W, PF: %d.%06d\n",
+        snprintf(sensor_msg[2], 128, "%s: Sensor3 | V: %d.%06d V, I: %d.%06d A, P: %d.%06d W, PF: %d.%06d\r\n",
                hw_id,
                voltage.val1, voltage.val2,
                current.val1, current.val2,
                power.val1, power.val2,
                pf.val1, pf.val2);
         LOG_INF("Send by uart 2: %s", sensor_msg[2]);
-        ret = hmi_uart_send(my_uart_instance_data1.dev, sensor_msg[2], strlen(sensor_msg[2]));
+        do{
+            ret = hmi_uart_send(my_uart_instance_data1.dev, sensor_msg[2], strlen(sensor_msg[2]));
+        }while(ret == -EBUSY);
         if(ret != 0)
         {
             LOG_ERR("Failed to send sensor3 value to 9151\n");
