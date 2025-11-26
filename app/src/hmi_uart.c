@@ -142,8 +142,8 @@ int hmi_uart_send(const struct device *uart_dev, const uint8_t *data, size_t len
     }
 
     int ret = uart_tx(uart_dev, data, len, SYS_FOREVER_US);
-    if (ret < 0) {
-        LOG_ERR("UART %s 寫入 FIFO 失敗: %d", uart_dev->name, ret);
-    }
+    // if (ret < 0) {
+    //     LOG_ERR("UART %s 寫入 FIFO 失敗: %d", uart_dev->name, ret);
+    // }
     return ret; // 返回
 }
